@@ -324,7 +324,7 @@ class VM(object):
             if inuse == 0:
                 return(i)
         return("0")
-    def boot_vm(self, vrde):
+    def boot_vm(self, vrde, gui):
         if uc:
             U = Unbound()
             for k, v in self.conf.items():
@@ -335,6 +335,12 @@ class VM(object):
                     if match:
                         U.unbound_ip(self.name, match.group(1), match.group(2), vm_nic, self.uuid)
         if re.search(r'poweroff', self.conf["VMState"]):
+            if gui:
+                s = vbmanage + " startvm " + self.uuid
+                e, pipe = run_command(s, verbose)
+                if e:
+                    print("Failed to run: ", s, '\n', pipe)
+                return
             p = self.find_open_port(2021)
             if p == 0:
                 sys.exit("Failed to find available TCP port\n")
@@ -904,7 +910,7 @@ def edit_vm(vm):
         Vm.display()
         print("\n"
               "(O) OS  (N) NICs  (C) CPUs  (M) Memory  (D) Delete Storage Controller\n"
-              "(B) Boot Order  (G) Video  (F) Firmware Type  (P) Force NMI      (Q) Return to Previous Menu")
+              "(B) Boot Order  (G) Video  (F) Firmware Type  (P) Force NMI  (Q) Quit program")
         user_input = input("\nCommand Me: ").upper()
         if user_input == "D":
             user_input = get_int("Delete  (1) IDE  (2) SATA  (3) SCSI  (4) SAS ")
@@ -1009,6 +1015,7 @@ def main():
     boot = parser.add_argument_group('Boot a VM')
     boot.add_argument('-b', type=str, help='Boot VM or connect to VM console if already booted', metavar='VM')
     boot.add_argument('-g', action='store_true', default=False, help='Enable VRDE (' + vrdeargs + ')')
+    boot.add_argument('-w', action='store_true', default=False, help='Boot with GUI Window')
 
     cdrom = parser.add_argument_group('Insert or Eject a DVD')
     cdrom.add_argument('--eject', type=str, help='Eject DVD from VM', metavar='VM')
@@ -1058,10 +1065,12 @@ def main():
         Vm.display()
     elif results.b:
         Vm = VM(results.b)
-        if results.g:
-            Vm.boot_vm(True)
+        if results.w:
+            Vm.boot_vm(False, True)
+        elif results.g:
+            Vm.boot_vm(True, False)
         else:
-            Vm.boot_vm(False)
+            Vm.boot_vm(False, False)
     elif results.n:
         Vm = VM(results.n)
         Vm.toggle_nested_paging()
