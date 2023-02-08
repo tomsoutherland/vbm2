@@ -35,197 +35,6 @@ def confirm_command(prompt=None, resp=False):
             return True
         if ans == 'n' or ans == 'N':
             return False
-class Unbound(object):
-    def __init__(self):
-        self.natnets = {}
-        self.mac_dict = {}
-        self.populate()
-    run_command = staticmethod(run_command)
-    def print_natnets(self):
-        print('natnets', self.natnets)
-    def is_ip_used(self, hostip):
-        for m in self.mac_dict:
-            if hostip in self.mac_dict[m].values():
-                return True
-        return False
-    def resolv_conf(self):
-        ns = []
-        try:
-            with open('/etc/resolv.conf', 'r') as resolvconf:
-                for line in resolvconf.readlines():
-                    match = re.search(r'^nameserver\s*(\d*\.\d*\.\d*\.\d*)', line)
-                    if match:
-                        ns.append(match.group(1))
-        except:
-            return []
-        return ns
-    def get_key_natnetdns(self, v):
-        for nat, domain in natnetdns.items():
-            if v == domain:
-                return nat
-        return None
-    def init_lhosts(self):
-        try:
-            with open(os.path.join(vboxdata, "vbm-lhosts.xml").replace("\\","/"), 'r') as lhfoo:
-                lhdata = json.load(lhfoo)
-                lhfoo.close()
-        except:
-            lhdata = {}
-        for k, v in mac_over.items():
-            if re.search('DEADBEEF', k):
-                p = v.split('.')
-                hn = p.pop(0)
-                dn = '.'.join(p)
-                natnet = self.get_key_natnetdns(dn)
-                if not k in lhdata:
-                    print(natnetdns)
-                    print(natnet)
-                    self.unbound_ip(hn, k, natnet, None, None)
-                    self.mac_dict[k].update({'netname': natnet})
-                else:
-                    self.mac_dict[k] = {}
-                    if not lhdata[k].get('IP'):
-                        self.unbound_ip(hn, k, natnet, None, None)
-                        break
-                    self.mac_dict[k].update({'netname': lhdata[k]['netname']})
-                    self.mac_dict[k].update({'IP': lhdata[k]['IP']})
-                    self.mac_dict[k].update({'name': hn})
-        with open(os.path.join(vboxdata, "vbm-lhosts.xml").replace("\\","/"), 'w') as lhfoo:
-            json.dump(self.mac_dict, lhfoo, indent=2)
-            lhfoo.close()
-    def populate(self):
-        e, pipe = self.run_command(vbmanage + " list natnetworks", verbose)
-        for line in pipe.splitlines():
-            match = re.search(r'^NetworkName:\s+(\S*)', line)
-            if match:
-                n = match.group(1)
-                self.natnets[n]={}
-            match = re.search(r'^Network:\s+(\S*)', line)
-            if match:
-                self.natnets[n].update({'Network': match.group(1)})
-            match = re.search(r'127.0.0.1=(\d*)', line)
-            if match:
-                self.natnets[n].update({'Loopback': match.group(1)})
-        e, pipe = self.run_command(vbmanage + " list dhcpservers", verbose)
-        for line in pipe.splitlines():
-            match = re.search(r'NetworkName:\s+(\S.*)$', line)
-            if match:
-                netname = match.group(1)
-            match = re.search(r' MAC (\S+)', line)
-            if match:
-                mac = re.sub('[.:-]', '', match.group(1).upper())
-                self.mac_dict[mac]={}
-                self.mac_dict[mac].update({'netname': netname})
-            match = re.search(r'Fixed Address:\s+(\S+)', line)
-            if match:
-                self.mac_dict[mac].update({'IP': match.group(1)})
-        for natnet in self.natnets.keys():
-            tree = ET.parse(os.path.join(vboxdata, natnet + '-Dhcpd.leases').replace("\\","/"))
-            root = tree.getroot()
-            for lease in root.findall('Lease'):
-                mac = ip = None
-                if lease.get('state') == 'expired': continue
-                mac = re.sub('[.:-]', '', lease.get('mac').upper())
-                ip = lease.find('Address').get('value')
-                if mac and ip:
-                    if mac in self.mac_dict:
-                        continue
-                    else:
-                        self.mac_dict[mac] = {}
-                        self.mac_dict[mac].update({'IP': ip})
-        e, pipe = self.run_command(vbmanage + " list -l vms", verbose)
-        for line in pipe.splitlines():
-            match = re.search(r'^Name:\s+(\S+)', line)
-            if match: hname = match.group(1)
-            match = re.search(r'MAC: (\S+),', line)
-            if match:
-                mac = match.group(1)
-                if not mac in self.mac_dict:
-                    self.mac_dict[mac] = {}
-                if mac in mac_over:
-                    self.mac_dict[mac].update({'name': mac_over[mac]})
-                else:
-                    self.mac_dict[mac].update({'name': hname})
-        self.init_lhosts()
-    def print_dicts(self):
-        print('natnets', self.natnets, '\n\n', 'mac_dict', self.mac_dict, '\n\n', 'mac_over', mac_over)
-        return
-    def unbound_rm_ip(self, vm_name, vm_mac, vm_natnet, vm_nic, vm_uuid):
-        s = vbmanage + ' dhcpserver modify --network=' + vm_natnet + ' --vm=' + vm_uuid + ' --nic=' + vm_nic +\
-            ' --remove-config'
-        self.run_command(s, verbose)
-        self.mac_dict.pop(vm_mac, None)
-        self.populate()
-    def unbound_ip(self, vm_name, vm_mac, vm_natnet, vm_nic, vm_uuid):
-        if vm_mac in self.mac_dict:
-            if re.search('DEADBEEF', vm_mac): return
-            if 'IP' in self.mac_dict[vm_mac]:
-                ip = self.mac_dict[vm_mac]["IP"]
-                if 'name' in self.mac_dict[vm_mac]:
-                    hname = self.mac_dict[vm_mac]["name"]
-                    s = vbmanage + ' dhcpserver modify --network=' + vm_natnet + ' --vm=' + vm_uuid + ' --nic=' + \
-                        vm_nic + ' --set-opt=12 ' + hname + ' --fixed-address=' + ip
-                    self.run_command(s, verbose)
-                return
-        else:
-            self.mac_dict[vm_mac] = {}
-            self.mac_dict[vm_mac].update({'name': vm_name})
-            self.mac_dict[vm_mac].update({'netname': vm_natnet})
-        if vm_natnet in self.natnets:
-            dhcpnet = ipaddress.ip_network(self.natnets[vm_natnet]['Network'])
-            for hostip in dhcpnet.hosts():
-                break_flag = False
-                hostip = str(hostip)
-                if re.search('\.\d$', hostip): continue
-                if self.is_ip_used(hostip): continue
-                print(f"Found IP {hostip} for {vm_name}")
-                self.mac_dict[vm_mac].update({'IP': hostip})
-                if re.search('DEADBEEF', vm_mac): return
-                s = vbmanage + ' dhcpserver modify --network=' + vm_natnet + ' --vm=' + vm_uuid + ' --nic=' + vm_nic +\
-                        ' --set-opt=12 ' + vm_name + ' --fixed-address=' + hostip
-                self.run_command(s, verbose)
-                self.populate()
-                return
-
-    def unbound_control(self):
-        verbose = False
-        self.run_command(uc + " reload", verbose)
-        for ns in self.resolv_conf():
-            self.run_command(uc + " forward " + ns, verbose)
-        for natnet in self.natnets.keys():
-            if natnet in natnetdns:
-                dnsdom = natnetdns[natnet]
-            else:
-                continue
-            if not re.search('\S+\.$', dnsdom):
-                dnsdom = dnsdom + '.'
-            nsname = "ns-" + re.sub('[.: ]', '', natnet) + '.' + dnsdom
-            self.run_command(uc + " local_zone " + dnsdom + " typetransparent", verbose)
-            self.run_command(uc + " local_data " + dnsdom + " 10800 IN SOA " + nsname + \
-                             " nobody.invalid. 1 3600 1200 604800 10800", verbose)
-            self.run_command(uc + " local_data " + dnsdom + " IN NS " + nsname, verbose)
-            ipnet = ipaddress.ip_network(self.natnets[natnet]['Network'])
-            ns = (str(ipaddress.ip_address(int(ipnet.network_address) + int((self.natnets[natnet]['Loopback'])))))
-            print(ns)
-            self.run_command(uc + " local_data " + nsname + " IN A " + ns, verbose)
-            s = uc + " local_data " + ipaddress.ip_address(ns).reverse_pointer + ". IN PTR " + nsname
-            self.run_command(s, verbose)
-            for m in self.mac_dict.keys():
-                try:
-                    if self.mac_dict[m]["netname"] != natnet: continue
-                except:
-                    continue
-                host = self.mac_dict[m]['name'] + '.' + dnsdom
-                if 'IP' in self.mac_dict[m]:
-                    ip = self.mac_dict[m]['IP']
-                    self.run_command(uc + ' local_data ' + host + ' IN A ' + ip, verbose)
-                    s = uc + ' local_data ' + ipaddress.ip_address(ip).reverse_pointer + '. IN PTR ' + host
-                    self.run_command(s, verbose)
-            self.run_command(vbmanage + " dhcpserver modify --network=" + natnet + " --set-opt=6 " + ns, verbose)
-            self.run_command(
-                vbmanage + " dhcpserver modify --network=" + natnet + " --set-opt=15 " + dnsdom.rstrip('\.'), verbose)
-            self.run_command(vbmanage + " dhcpserver restart --network=" + natnet, verbose)
-        return
 class VM(object):
     def __init__(self, name):
         self.name = name
@@ -286,7 +95,7 @@ class VM(object):
         print('Name  -> ', self.name)
         nicf = ['Attachment', 'Cable', 'Type']
         for k, v in self.conf.items():
-            if v == 'none':
+            if v == 'none' or v == 'off':
                 continue
             print(k, ' -> ', v)
     def populate(self):
@@ -325,15 +134,6 @@ class VM(object):
                 return(i)
         return("0")
     def boot_vm(self, vrde, gui):
-        if uc:
-            U = Unbound()
-            for k, v in self.conf.items():
-                match = re.search(r'NIC (\d*)', k)
-                if match:
-                    vm_nic = match.group(1)
-                    match = re.search(r'MAC:(\S+), .* \'([\S\-]+)\',', v)
-                    if match:
-                        U.unbound_ip(self.name, match.group(1), match.group(2), vm_nic, self.uuid)
         if re.search(r'poweroff', self.conf["VMState"]):
             if gui:
                 s = vbmanage + " startvm " + self.uuid
@@ -363,9 +163,6 @@ class VM(object):
             if pipe.returncode:
                 print("Failed to run: " + [vbheadless] + vargs + ["-s", self.uuid])
                 return
-            if uc:
-                print("Updating Unbound")
-                U.unbound_control()
             sleep(sleeptime)
         self.populate()
         match = re.search(r'\,(\d+)', self.conf["uartmode1"])
@@ -396,16 +193,6 @@ class VM(object):
     def delete_vm(self):
         if not confirm_command(f'Delete {self.name} and attached disks?'):
             return
-        if uc:
-            U = Unbound()
-            for k, v in self.conf.items():
-                match = re.search(r'NIC (\d*)', k)
-                if match:
-                    vm_nic = match.group(1)
-                match = re.search(r'MAC:(\S+), .* \'([\S\-]+)\',', v)
-                if match:
-                    U.unbound_rm_ip(self.name, match.group(1), match.group(2), vm_nic, self.uuid)
-            U.unbound_control()
         s = vbmanage + " unregistervm " + self.uuid + " --delete"
         e, pipe = run_command(s, verbose)
         if e:
@@ -1003,7 +790,6 @@ def main():
     parser.add_argument('-e', type=str, help='Edit VM', metavar='VM')
     parser.add_argument('-d', type=str, help='Delete VM', metavar='VM')
     parser.add_argument('-r', action='store_true', help='Sync on disk config with VirtualBox')
-    parser.add_argument('-u', action='store_true', help='Update unbound DNS')
     parser.add_argument('-v', action='store_true', help='Verbose mode showing command results')
     parser.add_argument('--nmi', type=str, help='Causes an NMI to be injected into the VM.', metavar='VM')
     parser.add_argument('--create', type=str, help='Create new VM', metavar="VM")
@@ -1085,15 +871,6 @@ def main():
         Vm.delete_vm()
     elif results.r:
         vbox_sync_config()
-    elif results.u:
-        if uc:
-            U = Unbound()
-            U.unbound_control()
-            U.print_natnets()
-        else:
-            ppath = (dirname(realpath(__file__)))
-            print('Check configuration: ', os.path.join(ppath, 'vbm.ini')).replace("\\","/")
-            print('unbound is not configured.')
     elif results.clone:
         Vm = VM(results.clone[0])
         Vm.clone_vm(results.clone[1])
