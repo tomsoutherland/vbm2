@@ -62,7 +62,7 @@ class VM(object):
             return 'auto'
         return nmac
     def toggle_nested_paging(self):
-        if not confirm_command('Toggle nestedpaging?'):
+        if not confirm_command('Toggle nestedpaging? '):
             return
         if self.conf["nestedpaging"] == "on":
             print("Turning nested paging off")
@@ -191,7 +191,7 @@ class VM(object):
             return
         return
     def delete_vm(self):
-        if not confirm_command(f'Delete {self.name} and attached disks?'):
+        if not confirm_command(f'Delete {self.name} and attached disks? '):
             return
         s = vbmanage + " unregistervm " + self.uuid + " --delete"
         e, pipe = run_command(s, verbose)
@@ -542,7 +542,7 @@ def ask_confirm(prompt):
         elif user_input == 'N':
             return False
         else:
-            print("\nPlease respond (Y or N)\n")
+            print("\nPlease respond (Y or N) \n")
 def list_vms(verbose):
     vms = {}
     l = 0
