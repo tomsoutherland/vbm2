@@ -92,12 +92,17 @@ class VM(object):
             sys.exit("Failed to run command: " + s + '\n' + pipe)
         return
     def display(self):
+        D = Disks()
         print('Name  -> ', self.name)
         nicf = ['Attachment', 'Cable', 'Type']
         for k, v in self.conf.items():
             if v == 'none' or v == 'off':
                 continue
-            print(k, ' -> ', v)
+            if re.search('ImageUUID', k):
+                print(k, ' -> ', v, end="   ")
+                D.print_size(v)
+            else:
+                print(k, ' -> ', v)
     def populate(self):
         self.conf = {}
         #self.conf["nestedpaging"] = ""
@@ -426,6 +431,11 @@ class Disks(object):
                 self.disks[uuid]["In use by VMs"].append(match.group(1))
                 continue
         return
+    def print_size(self, diskuuid):
+        try:
+            print(self.disks[diskuuid]['Capacity'])
+        except:
+            print("N/A")
     def print_all(self):
         for K in self.disks.keys():
             print('\n' + K)
