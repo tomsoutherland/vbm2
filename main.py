@@ -7,13 +7,6 @@ from subprocess import Popen, PIPE, STDOUT, call
 from time import sleep
 from glob import glob
 
-# Global vars
-
-#isodir=vbbasedir=vbdiskdir=vbheadless=vbheadlessargs=vrdeargs=vbmanage=socat=socatargs=''
-#sleeptime=lockfoo=mac_over=natnetdns=vboxdata=lockfoo=uc=verbose=''
-#uc = None
-#verbose = False
-
 def run_command(s, verbose=False):
     pipe = Popen(shlex.split(s), stdout=PIPE, stderr=STDOUT, encoding='utf-8')
     p = pipe.stdout.read()
@@ -41,8 +34,8 @@ class VM(object):
         self.uuid = ''
         self.conf = {}
         self.VMParms = ["ostype", "memory", "cpus", "VMState", "VMStateChangeTime", "storagecontroller.*", "UUID",
-                        "boot\d", "\S+\-\d+\-\d+", "nic.*", "uart.*", "macaddress\d",
-                        "firmware", "graphicscontroller", "vram", "nestedpaging", "\S+ImageUUID\S+", "\S+IsEjected\S+"]
+                        r"boot\d", r"\S+\-\d+\-\d+", "nic.*", "uart.*", r"macaddress\d",
+                        "firmware", "graphicscontroller", "vram", "nestedpaging", r"\S+ImageUUID\S+", r"\S+IsEjected\S+"]
         self.populate()
     run_command = staticmethod(run_command)
     confirm_command = staticmethod(confirm_command)
@@ -483,7 +476,7 @@ def vm_select_os():
     print("\n=============== Select OS ==============\n")
     pipe = Popen([vbmanage, "list", "-s", "ostypes"], stdout=PIPE, stderr=STDOUT, encoding='utf-8')
     for line in pipe.stdout:
-        match = re.search(r'^ID:\s+(\S+)', line.rstrip())
+        match = re.search(r'^ID / Description:\s+(\S+)', line.rstrip())
         if match:
             oslist.update({i: match.group(1)})
             i += 1
